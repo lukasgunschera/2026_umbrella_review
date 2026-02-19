@@ -1,0 +1,180 @@
+---
+title: "Study overlap analyses"
+description: "Analyse overlap of primary studies included in the reviews."
+author:
+  - name: Lukas Gunschera
+    orcid: 0000-0002-8241-0833
+    email: l.gunschera@outlook.com
+    corresponding: true
+    affiliation:
+      - ref: 1
+affiliations:
+  - id: 1
+    name: University of Cambridge
+    department: Medical Research Council Cognition and Brain Sciences Unit
+format:
+  html:
+    code-fold: true
+    toc: true
+editor: visual
+---
+
+```{r}
+#| include: false
+#| message: false
+#| cache: false
+
+library(renv)
+
+renv::activate()
+
+library(ggplot2)
+library(dplyr)
+library(ggcorrplot)
+library(viridis)
+library(ggpubr)
+library(here)
+library(readxl)
+```
+
+## Read data
+
+```{r}
+#| message: false
+#| cache: false
+
+ccv_dat <- readxl::read_excel("cca_data.xlsx")
+
+head(ccv_dat)
+```
+After loading the data, let's compute the overlap between different studies.
+
+```{r}
+#| message: false
+#| cache: false
+
+#|label: define-study-names
+
+studies <- c("Liu (2022)","Cunningham (2021)", "Keles (2021)", "Ivie (2022)", "Purba (2023)", "Ferguson (2021)")
+```
+
+First, compute the CCA coefficient across all included reviews.
+
+```{r}
+#| message: false
+#| cache: false
+#| label: compute-total-overlap
+
+# create matrix
+review_cols <- ccv_dat[, -1]  # remove study names
+review_names <- names(review_cols)
+
+# get number of reviews
+n_reviews <- length(review_names)
+
+# convert to numeric for comparisons
+review_matrix <- as.matrix(review_cols * 1)
+
+# compute values for equation
+n_s <- sum(review_matrix)
+n_u <- sum(review_matrix[,1] | review_matrix[,2] | review_matrix[,3] | 
+             review_matrix[,4] | review_matrix[,5] | review_matrix[,6])
+n_rev <- length(review_names)
+  
+cca_all = (n_s - n_u) / ((n_rev * n_u) - n_u)
+
+print(round(cca_all,3))
+```
+
+Now, compute the pairwise CCA coefficient for all review pairs.
+
+```{r}
+#| message: false
+#| cache: false
+#|label: compute-overlap
+
+## CCA Formula : ((total study occurrences - unique number of studies) / (number of reviews * number of unique studies)) - number of unique studies
+
+# create matrix for storing pairwise cca results
+cca_matrix <- matrix(0, nrow = n_reviews, ncol = n_reviews)
+
+# set correct names
+rownames(cca_matrix) <- colnames(cca_matrix) <- review_names
+
+# create function to compute cca
+compute_cca <- function(col1, col2){
+  # compute values for equation
+  n_studies <- sum(col1, col2)
+  n_unique <- sum(col1 | col2)
+  n_reviews <- 2
+  
+  # return results
+  return(list(
+    n_studies = n_studies,
+    n_unique = n_unique,
+    cca = (n_studies - n_unique) / ((n_reviews * n_unique) - n_unique)
+  ))
+}
+
+# fill matrixes with pairwise comparisons
+for(i in 1:n_reviews){
+  for(j in 1:n_reviews){
+    # set identity to 1
+    if(i == j){
+      cca_matrix[i, j] <- 1
+    # compute cca and store results in matrix
+    } else {
+      cca <- compute_cca(review_cols[[i]], review_cols[[j]])$cca
+      cca_matrix[i, j] <- cca
+    }
+  }
+}
+```
+
+Add row and column names to the matrix for visualisation.
+
+```{r}
+#| message: false
+#| cache: false
+#|label: add-study-names
+
+# add study names
+rownames(cca_matrix) <- studies
+colnames(cca_matrix) <- studies
+```
+
+```{r}
+#| message: false
+#| cache: false
+#|label: corr-plot
+
+p_corrmat <- ggcorrplot::ggcorrplot(cca_matrix, 
+                                    method = "square", 
+                                    lab = TRUE,
+                                    type = "lower", 
+                                    show.diag = FALSE, 
+                                    digits = 3) + 
+  scale_fill_gradient2(midpoint = 0, 
+                       limits = c(0, .3),
+                       low = viridis(1, option = "C"), 
+                       mid = "white", 
+                       high = viridis(1, option = "C", begin = .4),
+                       breaks = seq(0, 0.3, by = 0.05),
+                       name = "") +
+  
+  theme(axis.text.x = element_text(angle = 45, 
+                                   hjust = 1, 
+                                   size = 12, 
+                                   color = "black"),
+        axis.text.y = element_text(size = 12, 
+                                   color = "black"),
+        axis.title = element_blank())
+
+p_corrmat
+```
+
+```{r}
+#|label: save-plot
+
+ggsave(p_corrmat, filename = "2025_ur_overlap.png", width = 8, height = 6, dpi = 1200)
+```
